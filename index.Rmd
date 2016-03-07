@@ -1,0 +1,108 @@
+---
+title: "Practical Machine Learning - Course Project"
+author: "Amit Kohli"
+date: "March 4, 2016"
+output: html_document
+---
+
+```{r prepare_environment, echo=FALSE, include=FALSE}
+setwd("~/practicalmachinelearning")
+knitr::opts_chunk$set(echo = FALSE, fig.path = 'figure/', results = 'hold')
+library(lattice)
+library(ggplot2)
+library(caret)
+library(randomForest)
+```
+
+## Introduction
+The goal of this report is to predict the manner in which people exercise. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. The report uses data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. The Training data consists of accelerometer data and  labels identifying the quality of participant's activity. The Test data consists of accelerometer data without the identifying label. The report's goal is to predict the labels for the test set observations.
+
+## Load Data
+The data files have already been download in the local folder from.  More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset). 
+
+The training data for this project are available here: https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+
+The test data are available here: https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+First step is to read the dataset in two parts. The first for Training and the second for Testing and summarize results.
+```{r load_data}
+trainingData <- read.csv("pml-training.csv")
+testData <- read.csv("pml-testing.csv")
+```
+
+To estimate the out-of-sample error, the report splits the Training data into two smaller training sets. 
+```{r split_data}
+set.seed(20160304)
+splitData <- createDataPartition(y=trainingData$classe, p=0.7, list=F)
+trainingData1 <- trainingData[splitData, ]
+trainingData2 <- trainingData[-splitData, ]
+```
+
+The report reduces the number of features by removing variables with nearly zero variance, variables that are almost always NA, and variables that don't make intuitive sense for prediction (X, user_name, raw_timestamp_part_1, raw_timestamp_part_2, cvtd_timestamp), which happen to be the first five variables)
+
+```{r clean_data}
+zeroValue <- nearZeroVar(trainingData1)
+trainingData1 <- trainingData1[, -zeroValue]
+trainingData2 <- trainingData2[, -zeroValue]
+
+naValue <- sapply(trainingData1, function(x) mean(is.na(x))) > 0.95
+trainingData1 <- trainingData1[, naValue==F]
+trainingData2 <- trainingData2[, naValue==F]
+
+trainingData1 <- trainingData1[, -(1:5)]
+trainingData2 <- trainingData2[, -(1:5)]
+```
+
+## Model Building
+The report uses Random Forest model, to see if it would have acceptable performance. The report fits the model on training data and uses the 3-fold cross-validation to select optimal tuning parameters for the model. The report now trains the classifier with the Training data. 
+
+```{r train_model}
+# instruct train to use 3-fold CV to select optimal tuning parameters
+fitControl <- trainControl(method="cv", number=3, verboseIter=F)
+
+# fit model on trainingData1
+fit <- train(classe ~ ., data=trainingData1, method="rf", trControl=fitControl)
+
+# print final model to see tuning parameters it chose
+fit$finalModel
+```
+
+The model used 500 trees and 27 variables at each split.
+
+## Model Evaluation and Selection
+Next, the report uses the fitted model to predict the label ("classe") in the second training data set, and show the confusion matrix to compare the predicted versus the actual labels:
+
+```{r confusion_matrix}
+# use model to predict classe in validation set (trainingData2)
+dataPredict <- predict(fit, newdata=trainingData2)
+
+# show confusion matrix to get estimate of out-of-sample error
+confusionMatrix(trainingData2$classe, dataPredict)
+```
+
+The accuracy is 99.8%, thus the predicted accuracy for the out-of-sample error is 0.2%. This is better than expected result.  Next, let's use Random Forests to predict on the test set.
+
+## Re-training the model
+The report re-runs the model on the full training set.
+```{r retrain_model}
+# remove variables with nearly zero variance
+zeroValue <- nearZeroVar(trainingData)
+trainingData <- trainingData[, -zeroValue]
+testData <- testData[, -zeroValue]
+
+# remove variables that are almost always NA
+naValue <- sapply(trainingData, function(x) mean(is.na(x))) > 0.95
+trainingData <- trainingData[, naValue==F]
+testData <- testData[, naValue==F]
+
+# remove variables that don't make intuitive sense for prediction (X, user_name, raw_timestamp_part_1, raw_timestamp_part_2, cvtd_timestamp), which happen to be the first five variables
+trainingData <- trainingData[, -(1:5)]
+testData <- testData[, -(1:5)]
+
+# re-fit model using full training set (trainingData)
+fitControl <- trainControl(method="cv", number=3, verboseIter=F)
+fit <- train(classe ~ ., data=trainingData, method="rf", trControl=fitControl)
+
+# print final model to see tuning parameters it chose
+fit$finalModel
+```
